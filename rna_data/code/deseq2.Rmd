@@ -1,0 +1,240 @@
+---
+title: "DESeq2"
+output: 
+  html_document:
+    df_print: paged
+author: "John Favate"
+date: "`r Sys.time()`"
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r}
+# Prevent printing of warnings and such in the HTML
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+```{r}
+library(tidyverse)
+library(DESeq2)
+
+kdf <- read_csv("../data_frames/kallisto_results.csv")
+
+# replace - with _
+kdf$sample <- str_replace_all(kdf$sample, "-", "_")
+
+# reshape the data to a count matrix with gene names as rownames
+counts <- kdf %>% 
+  dplyr::select(where(is.character), est_counts) %>% 
+  unite("gn", target_id, genbank, gene_name, gene_symbol, sgd, sep = "|") %>% 
+  pivot_wider(names_from = sample, values_from = est_counts) %>% 
+  column_to_rownames("gn")
+```
+
+This list sets the comparisons AND the factor levels, it's always the first thing then the second thing, hence all fold changes are from the first thing to the second thing, aka a ratio of the second thing over the first thing.
+```{r}
+comp.list <- list(
+  # DSPAAC to SPAAC
+  "wt_dspaac_over_wt_spaac" = c("WT_SPAAC", "WT_DSPAAC"),
+  "mut_dspaac_over_mut_spaac" = c("Xrn1_H41A_SPAAC", "Xrn1_H41A_DSPAAC"),
+  # DSPAAC to RNAseq
+  "wt_dspaac_over_wt_rnaseq" = c("WT", "WT_DSPAAC"),
+  "mut_dspaac_over_mut_rnaseq" = c("Xrn1_H41A", "Xrn1_H41A_DSPAAC"),
+  # SPAAC to RNAseq
+  "wt_spaac_over_wt_rnaseq" = c("WT", "WT_SPAAC"),
+  "mut_spaac_over_mut_rnaseq" = c("Xrn1_H41A", "Xrn1_H41A_SPAAC"),
+  # wt DSPAAC to mut DSPAAC
+  "mut_dspaac_over_wt_dspaac" = c("WT_DSPAAC", "Xrn1_H41A_DSPAAC"),
+  # wt SPAAC to mut SPAAC
+  "mut_spaac_over_wt_spaac" = c("WT_SPAAC", "Xrn1_H41A_SPAAC"),
+  # DSPAAC to controls
+  "wt_dspaac_over_control" = c("minusADPRC", "WT_DSPAAC"),
+  "mut_dspaac_over_control" = c("minusADPRC", "Xrn1_H41A_DSPAAC")
+)
+```
+
+```{r}
+names(counts)
+```
+
+Test that this is working correctly
+```{r}
+test.list <- lapply(comp.list, function(x) {
+  # these are the names of the columns with the counts
+  # controls have only 2, and can only be s1 because it's 1st position in the 
+  # vector in the comp.list, if it's a control, use only 1:2
+  if (grepl("minus", x[1])){
+    s1 <- paste0(x[1], "_", 1:2)
+  } else {
+    s1 <- paste0(x[1], "_", 1:3)
+  }
+
+  s2 <- paste0(x[2], "_", 1:3)
+  
+  # generate the count matrix
+  count.mat <- counts %>%
+    dplyr::select(all_of(s1), all_of(s2)) %>%
+    as.matrix()
+  
+  # make the conditions data frame
+  conds.df <-
+    data.frame(condition = factor(str_sub(colnames(count.mat), end = -3L), levels = c(x[1], x[2])))
+  
+  return(colnames(count.mat))
+})
+
+test.list
+```
+
+Should return all TRUE
+```{r}
+test.list2 <- lapply(comp.list, function(x) {
+  # these are the names of the columns with the counts
+  # controls have only 2, and can only be s1 because it's 1st position in the 
+  # vector in the comp.list, if it's a control, use only 1:2
+  if (grepl("minus", x[1])){
+    s1 <- paste0(x[1], "_", 1:2)
+  } else {
+    s1 <- paste0(x[1], "_", 1:3)
+  }
+
+  s2 <- paste0(x[2], "_", 1:3)
+  
+  # generate the count matrix
+  count.mat <- counts %>%
+    dplyr::select(all_of(s1), all_of(s2)) %>%
+    as.matrix()
+  
+  # make the conditions data frame
+  conds.df <-
+    data.frame(condition = factor(str_sub(colnames(count.mat), end = -3L), levels = c(x[1], x[2])))
+  
+  # strip the colnames of numbers to make sure they match conds df
+  testnames <- colnames(count.mat) %>% str_remove("_[123]{1}")
+  
+  return(conds.df$condition == testnames)
+})
+
+test.list2
+```
+
+This takes the above list and runs DESeq2.
+```{r}
+df.list <- lapply(comp.list, function(x) {
+  # these are the names of the columns with the counts
+  # controls have only 2, and can only be s1 because it's 1st position in the
+  # vector in the comp.list, if it's a control, use only 1:2
+  if (grepl("minus", x[1])) {
+    s1 <- paste0(x[1], "_", 1:2)
+  } else {
+    s1 <- paste0(x[1], "_", 1:3)
+  }
+  
+  s2 <- paste0(x[2], "_", 1:3)
+  
+  # generate the count matrix
+  count.mat <- counts %>%
+    dplyr::select(all_of(s1), all_of(s2)) %>%
+    as.matrix()
+  
+  # make the conditions data frame
+  conds.df <-
+    data.frame(condition = factor(str_sub(colnames(count.mat), end = -3L), levels = c(x[1], x[2])))
+  
+  # run DESeq2
+  d1 <-
+    DESeqDataSetFromMatrix(countData = count.mat,
+                           design = ~ condition,
+                           colData = conds.df)
+  
+  d2 <- DESeq(d1)
+  
+  d3 <- lfcShrink(d2, coef = 2, type = "apeglm") %>%
+    as_tibble(rownames = "target")
+  
+  return(d3)
+})
+```
+
+Combine the results to a single data frame and split the name field
+```{r}
+one.df <- bind_rows(df.list, .id = "comparison") %>% 
+   separate(target, into = c("target_id", "genbank", "gene_name", "gene_symbol", "sgd"), sep = "\\|")
+
+# there are some character NA from before, fix them to real NA, check to make
+# sure there's no genes called NA first, wouldn't be surprised if there was.
+# this is a list of the unique values of any col where any cell == "NA"
+col.list <- one.df %>% 
+  filter(if_any(.cols = where(is.character), .fns = ~ . == "NA")) %>% 
+  select(where(is.character))
+
+# seems that gene_id_3 has most of the NAs and the other cols will have some non
+# NA identifier so it's safe to change them
+lapply(col.list, function(x){
+  any(nchar(x) != 2)
+})
+```
+
+Change them
+```{r}
+one.df[one.df == "NA"] <- NA
+
+one.df
+```
+
+Confirm that the levels were correct, pull the most negative + smallest padj fold change and make sure the TPMs are correct looking. I pulled the 5th one because the top ones tend to be not expressed in one sample at all. Looks good.
+```{r fig.width = 10, fig.height = 4}
+one.df %>% 
+  split(.$comparison) %>% 
+  map(function(x){
+    id <- x %>% 
+      arrange(log2FoldChange, padj) %>% 
+      pull(target_id) %>%
+      .[5]
+    
+    kdf %>% 
+      filter(target_id == id) %>% 
+      ggplot(., aes(sample, tpm))+
+      geom_col()+
+      scale_y_log10()+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+      labs(title = paste(x$comparison[1], id))
+  })
+```
+
+Then one that should be positive, seems ok too.
+```{r fig.width = 10, fig.height = 4}
+one.df %>% 
+  split(.$comparison) %>% 
+  map(function(x){
+    id <- x %>% 
+      arrange(desc(log2FoldChange), padj) %>% 
+      pull(target_id) %>%
+      .[5]
+    
+    kdf %>% 
+      filter(target_id == id) %>% 
+      ggplot(., aes(sample, tpm))+
+      geom_col()+
+      scale_y_log10()+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+      labs(title = paste(x$comparison[1], id))
+  })
+```
+
+Save it, this has the chunk option of `eval = FALSE` on it so the file isn't overwritten every time this is knit to an HTML.
+```{r eval = FALSE}
+one.df <- one.df %>%
+  write_csv("../data_frames/deseq_results.csv")
+```
+
+```{r}
+sessionInfo()
+```
+

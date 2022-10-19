@@ -1,0 +1,527 @@
+---
+title: "Figures with no labels"
+output: 
+  html_document:
+    df_print: paged
+author: "John Favate"
+date: "`r Sys.time()`"
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r}
+# Prevent printing of warnings and such in the HTML
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(scales)
+library(ggpointdensity)
+library(patchwork)
+library(broom)
+
+futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
+
+kdf <- read_csv("../data_frames/kallisto_results.csv")
+
+# DEseq results
+dsdf <- read_csv("../data_frames/deseq_results.csv")
+```
+
+### RNAseq TPM compared to DESeq fold change in condition / RNAseq
+
+cutoffs
+```{r}
+qcut <- .01
+fccut <- 1
+```
+
+The global text size, though the labels are removed.
+```{r}
+ts <- 16
+```
+
+The average RNAseq TPMs
+```{r}
+rna.samples <- c(
+  paste0("WT-", 1:3),
+  paste0("Xrn1-H41A-", 1:3)
+)
+
+# mean TPMs from these samples
+mean.tpms <- kdf %>% 
+  filter(sample %in% rna.samples) %>% 
+  mutate(sample = str_remove(sample, "-\\d{1}")) %>% 
+  group_by(sample, target_id) %>% 
+  summarise(mean_tpm = mean(tpm)) %>% 
+  split(.$sample)
+```
+
+Get the fold changes and padj values
+```{r}
+fc.list <- list(
+  "SPAAC seq (WT)" = "wt_spaac_over_wt_rnaseq",
+  "D-SPAAC seq (WT)" = "wt_dspaac_over_wt_rnaseq",
+  "SPAAC seq (xrn1 H41A)" = "mut_spaac_over_mut_rnaseq",
+  "D-SPAAC seq (xrn1 H41A)" = "mut_dspaac_over_mut_rnaseq"
+)
+
+fc.plot.df <- sapply(names(fc.list), function(x) {
+  fc.df <- dsdf %>%
+    filter(comparison == fc.list[[x]]) %>%
+    select(target_id, sgd, gene_name, log2FoldChange, padj) %>%
+    mutate(
+      sig = ifelse(log2FoldChange >= fccut & padj <= qcut, TRUE, FALSE),
+      sig = ifelse(is.na(sig), FALSE, sig)
+    )
+  
+  # pick the correct rnaseq data
+  if (grepl("WT", x)){
+    joined.df <- left_join(fc.df, mean.tpms$WT)
+  } else {
+    joined.df <- left_join(fc.df, mean.tpms$`Xrn1-H41A`)
+  }
+}, simplify = FALSE) %>% 
+  bind_rows(.id = "comp")
+```
+
+Make it so that significant genes in one genotype are blue (and shades of blue to show DSPAAC/SPAAC), and the other genotype is shades of red. circ genes are Imd4 = S000004520, sgf11 = S000005968, enb1 = SGD:S000005518
+```{r}
+match.df <- data.frame(
+  genotype = c("wt", "wt", "mut", "mut"),
+  seqtype = c("dspaac", "spaac", "dspaac", "spaac"),
+  code = c("a", "b", "c", "d")
+)
+
+# genes to be labeled
+lab.genes <- c("S000004520", "S000005968", "S000005518", "S000006000")
+
+fc.plot.df2 <- fc.plot.df %>% 
+  mutate(genotype = ifelse(grepl("WT", comp), "wt", "mut"),
+         seqtype = ifelse(grepl("D-SPAAC", comp), "dspaac", "spaac")) %>% 
+  left_join(match.df) %>% 
+  mutate(sig2 = ifelse(sig == TRUE, code, "z"), # if it's not sig point, it'll be grey
+         comp = factor(comp, levels = names(fc.list)), # the facets are to be in this order
+         labz = ifelse(sgd %in% lab.genes, gene_name, NA), # if it's a special gene, it's got a label
+         sig2 = ifelse(is.na(labz), sig2, "0")) # if it has a label, it's a different color
+```
+
+Find the number of significant genes in each 
+```{r}
+nsigs <- fc.plot.df2 %>% 
+  filter(sig == TRUE) %>% 
+  group_by(comp) %>% 
+  tally() %>% 
+  mutate(code = c("b", "a", "d", "c"))
+```
+
+Get the 6 colors, two for each genotype, one for not sig, one for labeled genes
+```{r}
+colorz <- c("black", "#A6CEE3", "#1F78B4", "#FDBF6F", "#FF7F00", "grey70")
+```
+
+```{r fig.width = 9.25, fig.height = 2.5}
+fc.plots <- fc.plot.df2 %>% 
+  arrange(desc(sig2)) %>% 
+  ggplot(., aes(mean_tpm, log2FoldChange, color = sig2, label = labz)) +
+  geom_hline(aes(yintercept = 0), linetype = 5) +
+  geom_point(size = 1) +
+  ggrepel::geom_text_repel(box.padding = 1)+
+  geom_text(inherit.aes = FALSE, data = nsigs, aes(x = 1e4, 17, label = n, color = code))+
+  scale_x_log10(labels = trans_format("log10", math_format(10 ^ .x))) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = ts, face = "bold"),
+        axis.text = element_blank(),
+        axis.title = element_blank()) +
+  facet_wrap( ~ comp, ncol = 4)+
+  labs(x = "PolyA RNAseq TPM",
+       y = expression(paste(log[2], "(fold-change)")))+
+  scale_color_manual(values = colorz, guide = "none")
+
+ggsave(plot = fc.plots, filename = "../figures/no_labs_l2fc_vs_rnaseq_tpm.png", width = 9.25, height = 2.5)
+
+fc.plots
+```
+Only issue with this plot is that as it's labeled now, you need to read the caption to know what the FC is between.
+
+The values for the specific genes
+```{r}
+fc.plot.df2 %>% 
+  filter(sgd %in% lab.genes) %>% 
+  arrange(sgd, sample)
+```
+
+List of genes that are on the y axis, make these into a list per cat
+```{r}
+axis.genes <- fc.plot.df %>% 
+  filter(mean_tpm == 0 & padj <= .01 & log2FoldChange > 1) %>% 
+  split(.$comp) %>% 
+  map(.f = pull, target_id)
+
+lapply(names(axis.genes), function(x){
+  fixed.name <- x %>% 
+    str_replace(" / ", "_over_") %>% 
+    str_replace_all(" ", "_") %>% 
+    str_remove("\\(") %>% 
+    str_remove("\\)")
+  
+  fname <- paste0("../data_frames/no_rna_detect_but_is_capped_genes_", fixed.name, ".txt")
+  
+  write_lines(axis.genes[[x]], fname)
+})
+```
+
+### Comparison to controls
+
+DSPAAC control means
+```{r}
+dspaac.control.means <- kdf %>% 
+  filter(sample %in% c("minusADPRC-1", "minusADPRC-2")) %>% 
+  group_by(target_id) %>% 
+  summarise(ctrl = mean(tpm)) %>% 
+  ungroup()
+```
+
+These are all of the samples to be comapred to the controls.
+```{r}
+exp.samps <- c(
+  paste0("WT-DSPAAC-", 1:3),
+  paste0("Xrn1-H41A-DSPAAC-", 1:3),
+  paste0("WT-SPAAC-", 1:3),
+  paste0("Xrn1-H41A-SPAAC-", 1:3)
+)
+```
+
+These are the mean TPMs for those samples
+```{r}
+experiments.means <- kdf %>% 
+  filter(sample %in% exp.samps) %>% 
+  mutate(sample = str_remove(sample, "-\\d{1}")) %>% 
+  group_by(sample, target_id) %>% 
+  summarise(exper = mean(tpm)) %>% 
+  ungroup()
+```
+
+This makes the plots that are to be arranged in a 2x2 grid
+```{r}
+# join the control and experiment mean TPMs
+p.list <-
+  left_join(experiments.means, dspaac.control.means, by = "target_id") %>%
+  # for each sample
+  split(.$sample) %>%
+  map(function(x) {
+    # y axis label
+    ylabz <- paste(unique(x$sample), "TPM")
+    
+    # the scatterplot
+    sp <- ggplot(x, aes(ctrl, exper)) +
+      geom_pointdensity(size = .5) +
+      scale_x_log10(labels = trans_format("log10", math_format(10 ^ .x)),
+                    limits = c(1e-2, 1e6)) +
+      scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x)),
+                    limits = c(1e-3, 1e5)) +
+      stat_cor(aes(label = ..r.label..)) +
+      geom_abline(aes(slope = 1, intercept = 0), linetype = 5) +
+      theme_bw() +
+      theme(
+        panel.grid = element_blank(),
+        text = element_text(size = ts),
+        axis.text = element_blank(),
+        axis.title = element_blank()
+      ) +
+      labs(x = "minus ADPRC TPM",
+           y = ylabz) +
+      scale_color_gradientn(colors = viridis::mako(128), guide = "none")
+    
+    # density plot of ratios
+    dp.df <- x %>%
+      mutate(l2rat = log2(exper / ctrl))
+    
+    # figure out % of points above/below line
+    percs <- dp.df %>%
+      mutate(test = l2rat > 0) %>%
+      group_by(test) %>%
+      tally() %>%
+      filter(!is.na(test)) %>%
+      pivot_wider(names_from = test, values_from = n) %>%
+      mutate(below.perc = paste0(round((
+        `FALSE` / (`FALSE` + `TRUE`)
+      ) * 100), "%"),
+      above.perc = paste0(round((
+        `TRUE` / (`FALSE` + `TRUE`)
+      ) * 100), "%"))
+    
+    # % points above/below y=x line
+    bp <- percs$below.perc
+    
+    ap <- percs$above.perc
+    
+    # the density plot
+    dp <- dp.df %>%
+      ggplot(., aes(l2rat)) +
+      geom_density() +
+      geom_vline(aes(xintercept = 0), linetype = 5) +
+      theme_bw() +
+      theme(
+        panel.grid = element_blank(),
+        plot.background = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank()
+      ) +
+      labs(x = NULL,
+           y = NULL) +
+      scale_y_continuous(labels = NULL, limits = c(0, .4)) +
+      scale_x_continuous(limits = c(-10, 10), breaks = c(-5, 0, 5)) +
+      annotate(
+        "text",
+        x = -7,
+        y = .35,
+        label = bp,
+        size = 3
+      ) +
+      annotate(
+        "text",
+        x = 7,
+        y = .35,
+        label = ap,
+        size = 3
+      )
+    
+    # final plot
+    sp + inset_element(
+      dp,
+      left = .6,
+      bottom = .05,
+      top = .45,
+      right = .99
+    )
+  })
+```
+
+```{r fig.width = 6, fig.height = 6}
+compare.to.controls <- wrap_plots(p.list, ncol = 2)
+
+compare.to.controls
+
+ggsave(plot = last_plot(), filename = "../figures/no_labs_tpm_compare_to_controls.png", width = 6, height = 6)
+```
+
+Boxplots and stat comparisons to show those differences, namely that the distribution of ratios for DSPAAC is higher than SPAAC.
+```{r}
+rat.df <- left_join(experiments.means, dspaac.control.means, by = "target_id") %>% 
+  mutate(l2rat = log2(exper / ctrl),
+         genotype = ifelse(grepl("Xrn1", sample), "xrn1 H41A", "WT"),
+         genotype = factor(genotype, c("WT", "xrn1 H41A")),
+         method = ifelse(grepl("DSPAAC", sample), "D-SPAAC", "SPAAC")) %>% 
+  filter(is.finite(l2rat) & !is.na(l2rat))
+
+comp.list <- list("WT" = c("WT-DSPAAC", "WT-SPAAC"),
+                  "xrn1 H41A" = c("Xrn1-H41A-DSPAAC","Xrn1-H41A-SPAAC"))
+
+t.res <- lapply(comp.list, function(x){
+  t.test(
+    rat.df[rat.df$sample == x[1],]$l2rat,
+    rat.df[rat.df$sample == x[2],]$l2rat,
+    alternative = "greater"
+  ) %>%
+    tidy()
+}) %>% 
+  bind_rows()
+```
+
+These are not colored because they don't represent those colored blue/orange genes.
+```{r fig.width = 4, fig.height = 3}
+rat.df %>%
+  ggplot(., aes(genotype, l2rat, fill = method)) +
+  geom_hline(aes(yintercept = 0), linetype = 5) +
+  geom_boxplot(outlier.size = .5) +
+  stat_compare_means(aes(label = ..p.signif..)) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    text = element_text(size = ts),
+    axis.text = element_blank(),
+    axis.title = element_blank()
+  ) +
+  labs(x = NULL,
+       y = expression(paste(
+         log[2], " ", frac("TPM method", "minus ADPRC TPM")
+       ))) +
+  scale_fill_manual(values = c("grey70", "white"), name = "Method")
+
+ggsave(plot = last_plot(), filename = "../figures/no_labs_ratio_boxplots.png", width = 4, height = 3)
+```
+
+### TPM distributions of SPAAC and DSPAAC
+
+The TPM distribution of the DSPAAC should be lower than the SPAAC because DSPAAC gets the lowly expressed genes whereas SPAAC does not, this much seems obvious from the colored scatterplots. 
+```{r fig.width = 5, fig.height = 3}
+c.list <- list(
+  c("D-SPAAC seq (WT)", "SPAAC seq (WT)"),
+  c("D-SPAAC seq (xrn1 H41A)", "SPAAC seq (xrn1 H41A)")
+)
+
+fc.boxes <- fc.plot.df2 %>% 
+  filter(sig == TRUE) %>% 
+  ggplot(., aes(comp, mean_tpm, fill = comp))+
+  geom_boxplot(width = .5, outlier.size = .5)+
+  scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x)))+
+  stat_compare_means(comparisons = c.list, aes(label = ..p.signif..), vjust = .5, method.args = (list("alternative" = "less")))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = ts),
+        axis.text = element_blank(),
+        axis.title = element_blank())+
+  labs(x = NULL,
+       y = "PolyA RNAseq TPM")+
+  scale_x_discrete(labels = scales::label_wrap(14))+
+  scale_fill_manual(values = c("#1F78B4", "#A6CEE3", "#FF7F00", "#FDBF6F"), guide = "none")
+
+ggsave(plot = fc.boxes, filename = "../figures/no_labs_tpms_of_sig_genes.png", width = 5, height = 3)
+
+fc.boxes
+```
+
+### Venn diagrams
+
+```{r}
+# list for this venn diagram, sets the names to spaces so it has no labels
+v1.vec <- fc.plot.df2 %>%
+    filter(sig == TRUE & grepl("WT", comp)) %>%
+    mutate(comp = str_replace(comp, " seq ", "\nseq ")) %>% 
+    split(.$comp, drop = TRUE) %>%
+    map(.f = pull, target_id)
+
+names(v1.vec) <- c(" ", "  ")
+
+v1 <- VennDiagram::venn.diagram(
+  x = v1.vec,
+  filename = '../figures/no_labs_inc_dspaac_spaac.png',
+  output = TRUE,
+  scaled = TRUE,
+  imagetype = "png",
+  height = 400 ,
+  width = 400 ,
+  resolution = 300,
+  compression = "lzw",
+  cat.pos = c(0, 0),
+  cat.dist = c(.05, .05),
+  cex = .5,
+  cat.cex = .35,
+  lwd = .5,
+  fill = c("#A6CEE3", "#1F78B4"),
+  rotation.degree = 180,
+  sub.fontfamily = "Arial"
+)
+
+# get the genes as a list
+sigs.per.comp <- fc.plot.df %>% 
+  filter(sig == TRUE) %>% 
+  split(.$comp) %>% 
+  map(.f = pull, sgd)
+
+# for the above venn
+sigs.per.comp$`D-SPAAC seq (WT)` %>% write_lines("../data_frames/inc_genes_dspaac_spaac.txt")
+```
+
+```{r}
+v2.vec <- fc.plot.df2 %>%
+    filter(sig == TRUE &
+             comp %in% c("D-SPAAC seq (WT)", "D-SPAAC seq (xrn1 H41A)")) %>%
+    mutate(comp = str_replace(comp, " seq ", "\nseq ")) %>% 
+    split(.$comp, drop = TRUE) %>%
+    map(.f = pull, target_id)
+
+names(v2.vec) <- c(" ", "  ")
+
+v2 <- VennDiagram::venn.diagram(
+  x = v2.vec,
+  filename = '../figures/no_labs_inc_wt_mut_dspaac.png',
+  output = TRUE,
+  scaled = TRUE,
+  imagetype = "png" ,
+  height = 400 ,
+  width = 400 ,
+  resolution = 300,
+  compression = "lzw",
+  cat.pos = c(170, 190),
+  cat.dist = c(.05, .05),
+  cex = .5,
+  cat.cex = .35,
+  lwd = .5,
+  fill = c("#A6CEE3", "#FDBF6F"),
+  rotation.degree = 180,
+  sub.fontfamily = "Arial"
+)
+
+# genes that are up and unique to mutant
+setdiff(
+  sigs.per.comp$`D-SPAAC seq (xrn1 H41A)`,
+  sigs.per.comp$`D-SPAAC seq (WT)`
+) %>% 
+  write_lines("../data_frames/inc_genes_dspaac_mutant_specific.txt")
+```
+
+### GO results
+
+```{r fig.width = 8, fig.height = 5}
+df <- read_tsv("../data_frames/dspaac_go.tsv") %>% 
+  mutate(CLUSTER_FREQUENCY = str_remove(CLUSTER_FREQUENCY, "\\%") %>% as.numeric()) %>% 
+  arrange(desc(CLUSTER_FREQUENCY)) %>% 
+  filter(CLUSTER_FREQUENCY >= 2.4)
+
+cat.order <- df %>% 
+  arrange(CLUSTER_FREQUENCY) %>% 
+  pull(TERM)
+
+go1 <- df %>% 
+  ggplot(., aes(CLUSTER_FREQUENCY, factor(TERM, cat.order)))+
+  geom_col(fill = "#A6CEE3")+
+  labs(x = "Cluster frequency",
+       y = NULL)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15, face = "bold"),
+        axis.text.x = element_blank(),
+        axis.title = element_blank())
+
+ggsave(plot = go1, filename = "../figures/no_labs_dspaac_spaac_inc_cats.png", width = 8, height = 5)
+
+go1
+```
+
+```{r}
+df2 <- read_tsv("../data_frames/mut_go.tsv") %>% 
+  mutate(CLUSTER_FREQUENCY = str_remove(CLUSTER_FREQUENCY, "\\%") %>% as.numeric()) %>% 
+  arrange(desc(CLUSTER_FREQUENCY)) %>% 
+  filter(CLUSTER_FREQUENCY >= 2.4)
+
+cat.order <- df2 %>% 
+  arrange(CLUSTER_FREQUENCY) %>% 
+  pull(TERM)
+
+go2 <- df2 %>% 
+  ggplot(., aes(CLUSTER_FREQUENCY, factor(TERM, cat.order)))+
+  geom_col(fill = "#FDBF6F")+
+  labs(x = "Cluster frequency",
+       y = NULL)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 15, face = "bold"),
+        axis.text.x = element_blank(),
+        axis.title = element_blank())
+
+go2
+
+ggsave(plot = go2, filename = "../figures/no_labs_mut_cats.png", width = 8, height = 5)
+```

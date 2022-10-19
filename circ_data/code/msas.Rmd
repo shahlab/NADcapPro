@@ -1,0 +1,103 @@
+---
+title: "MSAs"
+output: 
+  html_document:
+    df_print: paged
+author: "John Favate"
+date: "`r Sys.time()`"
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r}
+# Prevent printing of warnings and such in the HTML
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+```{r}
+library(tidyverse)
+library(msa)
+library(Biostrings)
+```
+
+Read in each unique counts file
+```{r}
+dc <- dir("../unique_counts", full.names = TRUE)
+
+names(dc) <- dc %>% 
+  str_remove("../unique_counts/") %>% 
+  str_remove(".txt")
+
+dfs.in <- lapply(dc, read_table, col_names = c("count", "seq"), n_max = 10) %>% 
+  bind_rows(.id = "sample") %>% 
+  mutate(gene = str_extract(sample, "^.*?(?=-)"),
+         enz = ifelse(grepl("MDE", sample), "MDE", "RAI1"),
+         read = str_extract(sample, "R[12]"),
+         read = ifelse(is.na(read), "M", read)) %>% 
+  split(list(.$gene, .$enz, .$read), drop = TRUE) %>% 
+  map(.f = arrange, desc(count)) %>% 
+  bind_rows()
+```
+
+```{r}
+mlist <- dfs.in %>% 
+  group_by(read, gene, enz) %>% 
+  mutate(rn = row_number(),
+         sn = paste(gene, enz, rn, sep = "_")) %>% 
+  filter(rn <= 5) %>% 
+  ungroup() %>% 
+  split(list(.$gene, .$read))
+  
+lapply(mlist, function(x) {
+  tmp <- DNAStringSet(setNames(x$seq, x$sn))
+  
+  m <- msa(tmp, order = "input")
+  
+  msaPrettyPrint(
+    x = m,
+    askForOverwrite = FALSE,
+    file = paste0("../msas/", x$gene[1], "_", x$read[1], ".pdf")
+  )
+})
+```
+
+Also one that has both merge, R1 and R2 in it
+```{r}
+mlist2 <- dfs.in %>% 
+  group_by(read, gene, enz) %>% 
+  mutate(rn = row_number(),
+         sn = paste(gene, enz, read, rn, sep = "_")) %>% 
+  filter(rn <= 5) %>% 
+  ungroup() %>% 
+  split(list(.$gene))
+  
+lapply(mlist2, function(x) {
+  tmp <- DNAStringSet(setNames(x$seq, x$sn))
+  
+  m <- msa(tmp, order = "input")
+  
+  msaPrettyPrint(
+    x = m,
+    askForOverwrite = FALSE,
+    file = paste0("../msas/", x$gene[1], "_all", ".pdf")
+  )
+})
+```
+
+It always saves the file in code, move them to msas
+```{bash}
+mv ./*.pdf ../msas
+
+rm ../msas/*.tex
+```
+
+```{r}
+sessionInfo()
+```
+

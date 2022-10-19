@@ -1,0 +1,77 @@
+---
+title: "Index generation"
+output: 
+  html_document:
+    df_print: paged
+author: "John Favate"
+date: "`r Sys.time()`"
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+This code makes the fastas that are required to make the indices for alignment.
+
+```{r}
+# Prevent printing of warnings and such in the HTML
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+Acquire the data
+```{bash eval = FALSE}
+# genomic fasta
+wget -O - https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz | gunzip -c > ../fastas/GCF_000146045.2_R64_genomic.fna
+
+# transcripts fasta
+wget -P ../fastas/ https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_rna.fna.gz
+
+# gff
+wget -P ../gffs/ https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.gff.gz
+```
+
+### Make rRNA/tRNA fasta
+
+```{r}
+library(rtracklayer)
+library(Biostrings)
+```
+
+Load the gff
+```{r}
+gff <- readGFFAsGRanges("../gffs/GCF_000146045.2_R64_genomic.gff.gz")
+
+fasta <- readDNAStringSet("../fastas/GCF_000146045.2_R64_genomic.fna")
+
+names(fasta) <- stringr::str_extract(names(fasta), "NC_[0-9]{6}\\.[0-9]{1,2}")
+```
+
+Find the rRNA/tRNA entries
+```{r}
+rtrna.gff <- gff[gff$type %in% c("rRNA", "tRNA")]
+```
+
+Find the rRNA/tRNA seqs
+```{r}
+(rtrna.seqs <- fasta[rtrna.gff])
+```
+
+Reverse comp the - strand ones, **RUN THIS EXACTLY ONCE**, if you run it more than once, just clear your environment and start over. 
+```{r}
+neg.strand <- strand(rtrna.gff) == "-"
+
+rtrna.seqs[neg.strand] <- reverseComplement(rtrna.seqs[neg.strand])
+
+names(rtrna.seqs) <- rtrna.gff$locus_tag
+
+rtrna.seqs
+```
+
+Save it
+```{r}
+writeXStringSet(rtrna.seqs, "../fastas/rtRNA.fa")
+```

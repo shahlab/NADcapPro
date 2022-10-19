@@ -1,0 +1,11 @@
+# packages in environment at /home/jsf149/miniconda3/envs/fastp_env:
+#
+# Name                    Version                   Build  Channel
+_libgcc_mutex             0.1                 conda_forge    conda-forge
+_openmp_mutex             4.5                       2_gnu    conda-forge
+fastp                     0.23.2               hb7a2d85_2    bioconda
+isa-l                     2.30.0               ha770c72_4    conda-forge
+libdeflate                1.10                 h7f98852_0    conda-forge
+libgcc-ng                 12.1.0              h8d9b700_16    conda-forge
+libgomp                   12.1.0              h8d9b700_16    conda-forge
+libstdcxx-ng              12.1.0              ha89aaad_16    conda-forge

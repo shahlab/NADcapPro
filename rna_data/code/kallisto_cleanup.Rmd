@@ -1,0 +1,145 @@
+---
+title: "Kallisto results cleanup"
+output: 
+  html_document:
+    df_print: paged
+author: "John Favate"
+date: "`r Sys.time()`"
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r}
+# Prevent printing of warnings and such in the HTML
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+```{r}
+library(tidyverse)
+library(Biostrings)
+library(rtracklayer)
+```
+
+Read them all into a single data frame.
+```{r}
+tsv.locs <- dir("../alignment/kallisto/output", recursive = TRUE, pattern = ".tsv", full.names = TRUE)
+
+names(tsv.locs) <- str_remove(tsv.locs, "../alignment/kallisto/output/") %>% 
+  str_remove("/abundance.tsv")
+
+df <- lapply(tsv.locs, read_tsv) %>% 
+  bind_rows(.id = "sample") %>% 
+  mutate(est_counts = round(est_counts)) %>% # round the counts
+  group_by(sample) %>% 
+  mutate(tpm = ((est_counts/eff_length)/(sum(est_counts/eff_length)))*1e6) %>%# and recalc TPM
+  ungroup()
+```
+
+Get gene names
+```{r}
+fasta <- readDNAStringSet("../fastas/GCF_000146045.2_R64_rna.fna.gz")
+
+gene.names <- names(fasta) %>% 
+  str_remove("Saccharomyces cerevisiae S288C ")
+
+names.table <- data.frame(gene = gene.names) %>% 
+  mutate(target_id = str_extract(gene, "NM_[0-9]{9}\\.[0-9]{1,2}"),
+         gene = str_remove(gene, "NM_[0-9]{9}\\.[0-9]{1,2}"))
+
+names.table
+```
+
+Get better names from the GFF, these 3 columns can be gotten easily
+```{r}
+gff <- readGFFAsGRanges("../gffs/GCF_000146045.2_R64_genomic.gff.gz")
+
+my.targs <- gff[gff$type == "CDS"]$Name
+
+gff1 <- data.frame(
+  genbank = gff[gff$type == "CDS"]$Name,
+  gene_name = gff[gff$type == "CDS"]$gene,
+  gene_symbol = gff[gff$type == "CDS"]$locus_tag,
+  target_id = gff[gff$type == "CDS"]$Parent
+) %>% 
+  dplyr::select(-target_id.group, -target_id.group_name) %>% 
+  mutate(target_id.value = str_remove(target_id.value, "rna-")) %>% 
+  dplyr::rename("target_id" = "target_id.value")
+```
+
+But the SGD ID is in one of the compound columns so I have to do something else.
+```{r}
+obj <- gff[gff$type == "CDS"]$Dbxref
+
+gff2 <- lapply(obj, function(x){
+  ul <- unlist(x)
+  
+  data.frame(sgd = x[1],
+             gene_id = x[2],
+             genbank = x[3]) %>% 
+    mutate(genbank = str_remove(genbank, "Genbank:"),
+           gene_id = str_remove(gene_id, "GeneID:"),
+           sgd = str_remove(sgd, "SGD:"))
+}) %>% 
+  bind_rows()
+```
+
+Presumably the intersection of target_ids should be length of the df, but of course it's not
+```{r}
+intersect(gff1$genbank, gff2$genbank) %>% 
+  length() == nrow(gff1)
+```
+
+There are some SGD names in gff2 target_id column for some reason, I assume this is because they don't have things in all 3 columns
+```{r}
+setdiff(gff1$genbank, gff2$genbank)
+setdiff(gff2$genbank, gff1$genbank)
+```
+
+And I'm right, these are missing the genbank IDS, not sure how thats putting SGD names in that col though.
+```{r}
+x <- lapply(obj, function(x){
+  unlist(x)
+})
+
+res <- lapply(x, length) %>% unlist()
+
+x[which(res != 3)]
+```
+
+Either way, I can join them
+```{r}
+names.df <- left_join(gff1, gff2, by = "genbank") %>% 
+  unique()
+```
+
+```{r}
+(named.kdf <- left_join(df, names.df, by = "target_id") %>% 
+   dplyr::select(sample, where(is.character), everything()))
+```
+
+Change some of the naming to ensure consistency
+```{r}
+named.kdf$sample[named.kdf$sample == "Xrn1-H41A-DSPAAC-minusADPRC"] <- "minusADPRC-1"
+
+named.kdf$sample <- str_replace(named.kdf$sample, "xrn1", "Xrn1")
+
+named.kdf$sample[named.kdf$sample == "WT-DSPAAC-minusADPRC"] <- "minusADPRC-2"
+
+unique(str_remove(named.kdf$sample, "-[123]{1}"))
+```
+
+Save it
+```{r eval=FALSE}
+write_csv(named.kdf, "../data_frames/kallisto_results.csv")
+```
+
+```{r}
+sessionInfo()
+```
+

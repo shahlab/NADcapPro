@@ -10,6 +10,8 @@
 #SBATCH --output=/dev/null
 #SBATCH --array=0-19
 
+source /home/jsf149/miniconda3/bin/activate && conda activate hisat2_env
+
 module load gcc/5.4
 
 # define the array of files
@@ -46,6 +48,6 @@ PAIR2=/scratch/jsf149/kiledjian_2/rna_data/seqdata/2-ar/$FILE\_R2_001.fastq.gz
 UN=/scratch/jsf149/kiledjian_2/rna_data/seqdata/3-depleted/$FILE\_R%_001.fastq.gz
 
 # run it
-/home/jsf149/bin/hisat2-2.2.1/hisat2 -x $INDEX -1 $PAIR1 -2 $PAIR2 -p 4 \
+hisat2 -x $INDEX -1 $PAIR1 -2 $PAIR2 -p 4 \
   --un-conc-gz $UN --no-unal --no-mixed --no-discordant --no-spliced-alignment \
   --rna-strandness FR -S /dev/null

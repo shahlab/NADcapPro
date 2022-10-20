@@ -9,7 +9,11 @@
 #SBATCH --array=0-19        # slurm array members
 #SBATCH --error=/scratch/jsf149/kiledjian_2/rna_data/errs/slurm.%N.%j.err
 #SBATCH --output=/dev/null
-              
+
+source /home/jsf149/miniconda3/bin/activate
+
+conda activate kallisto_env
+       
 # define the array of files
 ARRAY=( $(
 # for each file
@@ -46,4 +50,4 @@ INDEX=/scratch/jsf149/kiledjian_2/rna_data/alignment/kallisto/indices/GCF_000146
 # stderr from kallisto
 ERR=/scratch/jsf149/kiledjian_2/rna_data/reports/$FILE\/$FILE\.txt.kallisto
   
-/home/jsf149/bin/kallisto quant -i $INDEX -o $OUTPUT -t 8 --bias $PAIR1 $PAIR2 2>$ERR
+kallisto quant -i $INDEX -o $OUTPUT -t 8 --bias $PAIR1 $PAIR2 2>$ERR

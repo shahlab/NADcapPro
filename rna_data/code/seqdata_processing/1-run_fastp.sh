@@ -9,7 +9,6 @@
 #SBATCH --error=/scratch/jsf149/kiledjian_2/errs/slurm.%N.%j.err
 #SBATCH --output=/dev/null
 #SBATCH --array=0-19
-
 #SBATCH --mail-type=all
 #SBATCH --mail-user=john.favate@rutgers.edu
 

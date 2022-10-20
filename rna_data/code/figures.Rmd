@@ -111,7 +111,8 @@ fc.plot.df2 <- fc.plot.df %>%
   mutate(sig2 = ifelse(sig == TRUE, code, "z"), # if it's not sig point, it'll be grey
          comp = factor(comp, levels = names(fc.list)), # the facets are to be in this order
          labz = ifelse(sgd %in% lab.genes, gene_name, NA), # if it's a special gene, it's got a label
-         sig2 = ifelse(is.na(labz), sig2, "0")) # if it has a label, it's a different color
+         sig2 = ifelse(is.na(labz), sig2, "0"),# if it has a label, it's a different color
+         sig2 = ifelse(mean_tpm == 0, "x", sig2)) 
 ```
 
 Find the number of significant genes in each 
@@ -123,9 +124,9 @@ nsigs <- fc.plot.df2 %>%
   mutate(code = c("b", "a", "d", "c"))
 ```
 
-Get the 6 colors, two for each genotype, one for not sig, one for labeled genes
+Get the 7 colors, two for each genotype, one for not sig, one for labeled genes
 ```{r}
-colorz <- c("black", "#A6CEE3", "#1F78B4", "#FDBF6F", "#FF7F00", "grey70")
+colorz <- c("black", "#A6CEE3", "#1F78B4", "#FDBF6F", "#FF7F00", "red", "grey70")
 ```
 
 ```{r fig.width = 9, fig.height = 2.75}

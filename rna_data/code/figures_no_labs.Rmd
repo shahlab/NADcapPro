@@ -112,7 +112,7 @@ fc.plot.df2 <- fc.plot.df %>%
          comp = factor(comp, levels = names(fc.list)), # the facets are to be in this order
          labz = ifelse(sgd %in% lab.genes, gene_name, NA), # if it's a special gene, it's got a label
          sig2 = ifelse(is.na(labz), sig2, "0"),# if it has a label, it's a different color
-         sig2 = ifelse(mean_tpm == 0, "x", sig2)) 
+         sig2 = ifelse(mean_tpm == 0 & log2FoldChange >= 1 & padj <=.01, "x", sig2)) # if its a gene with no counts but FC >= 1 and q<= .01.
 ```
 
 Find the number of significant genes in each 

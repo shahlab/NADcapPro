@@ -1,4 +1,3 @@
-test
 This repository contains the code associated with the article XXXXXX.
 It can be divided into two parts, code that deals with the standard RNAseq data analysis and code that deals with the NAD based circularization assay.
 If you're attempting to reproduce analyses, the first thing you should do is clone this repository.

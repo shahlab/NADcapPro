@@ -55,7 +55,9 @@ comp.list <- list(
   "mut_spaac_over_wt_spaac" = c("WT_SPAAC", "Xrn1_H41A_SPAAC"),
   # DSPAAC to controls
   "wt_dspaac_over_control" = c("minusADPRC", "WT_DSPAAC"),
-  "mut_dspaac_over_control" = c("minusADPRC", "Xrn1_H41A_DSPAAC")
+  "mut_dspaac_over_control" = c("minusADPRC", "Xrn1_H41A_DSPAAC"),
+  # WT to mutant
+  "mut_over_wt" = c("WT", "Xrn1_H41A")
 )
 ```
 
@@ -230,7 +232,7 @@ one.df %>%
 
 Save it, this has the chunk option of `eval = FALSE` on it so the file isn't overwritten every time this is knit to an HTML.
 ```{r eval = FALSE}
-one.df <- one.df %>%
+one.df %>%
   write_csv("../data_frames/deseq_results.csv")
 ```
 

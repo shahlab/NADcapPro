@@ -364,8 +364,9 @@ c.list <- list(
 
 fc.boxes <- fc.plot.df2 %>% 
   filter(sig == TRUE) %>% 
-  ggplot(., aes(comp, mean_tpm, fill = comp))+
-  geom_boxplot(width = .5, outlier.size = .5)+
+  ggplot(., aes(comp, mean_tpm, color = comp))+
+  geom_jitter(height = 0, width = .2, size = 1, alpha = .5)+
+  geom_boxplot(width = .5, outlier.colour = NA, fill = NA)+
   scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x)))+
   stat_compare_means(comparisons = c.list, aes(label = ..p.signif..), vjust = .5, method.args = (list("alternative" = "less")))+
   theme_bw()+
@@ -375,7 +376,7 @@ fc.boxes <- fc.plot.df2 %>%
   labs(x = NULL,
        y = "PolyA RNAseq TPM")+
   scale_x_discrete(labels = scales::label_wrap(14))+
-  scale_fill_manual(values = c("#1F78B4", "#A6CEE3", "#FF7F00", "#FDBF6F"), guide = "none")
+  scale_color_manual(values = c("#1F78B4", "#A6CEE3", "#FF7F00", "#FDBF6F"), guide = "none")
 
 ggsave(plot = fc.boxes, filename = "../figures/tpms_of_sig_genes.png", width = 5, height = 3)
 
@@ -518,7 +519,7 @@ c.res1 <- chisq.test(ct) %>%
 c.res1
 ```
 
-A graph of simulated results, with the results of the chi-squared test on it
+A graph comparing the results, they (the journal) want it to display all the points, which is annoying to plot in this case. This is the old plot
 ```{r fig.width = 3, fig.height = 3}
 c1 <- data.frame(
   meanz = mean(s3c.rands),
@@ -546,9 +547,35 @@ c1
 ggsave(plot = c1, filename = "../figures/chi_spaac_dspaac.png", width = 3, height = 3)
 ```
 
+The new one can't use that method because it summarizes the data. To solve this, I'll do something dumb, as seen below.
+```{r fig.width = 3, fig.height = 3}
+new.df <- bind_rows(
+  data.frame(sample = "Expected",
+             value = s3c.rands),
+  data.frame(sample = "Observed",
+             value = c(rep(NA, length(s3c.rands)-1), 63)) # 63 is hard coded, it's the observed value
+) %>% 
+  mutate(fac = "SPAAC vs D-SPAAC")
+
+c1_new <- ggplot()+
+  geom_jitter(data = subset(new.df, sample == "Expected"), aes(sample, value), height = 0, size = 1, color = "grey50")+
+  geom_boxplot(data = subset(new.df, sample == "Expected"), aes(sample, value), color = "black", fill = NA, outlier.colour = NA)+
+  geom_point(data = subset(new.df, sample == "Observed"), aes(sample, value))+
+  labs(x = NULL,
+       y = "Number of overlaps")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = ts, face = "bold"))+
+  facet_wrap(~fac)
+
+ggsave(plot = c1_new, filename = "../figures/chi_spaac_dspaac_new.png", width = 3, height = 3)
+```
+
+
+
 ##### figure 3d
 
-This is for the figure 3d, which currently has 63 overlaps
+This is for the figure 3d
 ```{r}
 # this is how many genes are significant in each category
 f3d.vals <- fc.plot.df2 %>%
@@ -621,7 +648,47 @@ c2
 ggsave(plot = c2, filename = "../figures/chi_wt_xrn1.png", width = 3, height = 3)
 ```
 
+```{r fig.width = 3, fig.height = 3}
+new.df2 <- bind_rows(
+  data.frame(sample = "Expected",
+             value = s3d.rands),
+  data.frame(sample = "Observed",
+             value = c(rep(NA, length(s3d.rands)-1), 484)) # 63 is hard coded, it's the observed value
+) %>% 
+  mutate(fac = "WT vs Xrn1")
+
+c2_new <- ggplot()+
+  geom_jitter(data = subset(new.df2, sample == "Expected"), aes(sample, value), height = 0, size = 1, color = "grey50")+
+  geom_boxplot(data = subset(new.df2, sample == "Expected"), aes(sample, value), color = "black", fill = NA, outlier.colour = NA)+
+  geom_point(data = subset(new.df2, sample == "Observed"), aes(sample, value))+
+  labs(x = NULL,
+       y = "Number of overlaps")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = ts, face = "bold"))+
+  facet_wrap(~fac)
+
+ggsave(plot = c2_new, filename = "../figures/chi_wt_xrn1_new.png", width = 3, height = 3)
+```
+
 Paste those together for one figure
+```{r fig.width = 6.5, fig.height = 3.5}
+chi.plots <- (c1 | c2) + plot_annotation(tag_levels = "A")
+
+chi.plots
+
+ggsave(plot = chi.plots, filename = "../figures/chisq_plots.png", width = 6.5, height = 3.5)
+```
+
+Paste those together for one figure
+```{r fig.width = 6.5, fig.height = 3.5}
+chi.plots <- (c1_new | c2_new) + plot_annotation(tag_levels = "A")
+
+chi.plots
+
+ggsave(plot = chi.plots, filename = "../figures/chisq_plots_new.png", width = 6.5, height = 3.5)
+```
+
 ```{r fig.width = 6.5, fig.height = 3.5}
 chi.plots <- (c1 | c2) + plot_annotation(tag_levels = "A")
 
@@ -638,6 +705,130 @@ write_csv(
 )
 ```
 
+Do the overlapping genes have a large change in abundance between WT and xrn1?
+```{r fig.width = 7.5, fig.height=7}
+genes <- fc.plot.df2 %>%
+  filter(sig == TRUE &
+           comp %in% c("D-SPAAC seq (WT)", "D-SPAAC seq (xrn1 H41A)")) %>%
+  mutate(comp = str_replace(comp, " seq ", "\nseq ")) %>%
+  split(.$comp, drop = TRUE) %>%
+  map(.f = pull, target_id)
+
+ovs <- intersect(genes[[1]], genes[[2]])
+
+ov.df <- read_csv("../data_frames/deseq_results.csv") %>% 
+  filter(comparison == "mut_over_wt" & target_id %in% ovs)
+
+fcdist <- ov.df %>% 
+  ggplot(., aes(log2FoldChange))+
+  geom_histogram(bins = 100)+
+  geom_vline(aes(xintercept = 1), linetype = 5)+
+  geom_vline(aes(xintercept = -1), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  labs(x = expression(paste(log[2], "(fold change)")),
+       y = "Number of genes")+
+  scale_x_continuous(breaks = seq(-5, 10, 1))
+
+qdist <- ov.df %>% 
+  ggplot(., aes(padj))+
+  geom_histogram(bins = 100)+
+  geom_vline(aes(xintercept = .01), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  labs(x = "q-value",
+       y = "Number of genes")
+
+volc <- ov.df %>% 
+  ggplot(., aes(log2FoldChange, -log10(padj)))+
+  geom_point(size = 1)+
+  geom_hline(aes(yintercept = -log10(.01)), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  labs(x = expression(paste(log[2], "(fold change)")),
+       y = expression(paste(-log[10], "(q-value)")))
+
+volc2 <- ov.df %>% 
+  ggplot(., aes(log2FoldChange, -log10(padj)))+
+  geom_point(size = 1)+
+  geom_hline(aes(yintercept = -log10(.01)), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  coord_cartesian(xlim = c(-2.5, 2.5), ylim = c(0, 10))+
+  labs(x = expression(paste(log[2], "(fold change)")),
+       y = expression(paste(-log[10], "(q-value)")))
+
+# how many genes with sig q and >= 1 fc
+ngenes <- ov.df %>% 
+  filter(padj <= .01& abs(log2FoldChange) >= 1) %>% 
+  nrow()
+
+fig <- ((fcdist | qdist) / (volc | volc2) + plot_annotation(caption = paste("Fold change represents change from the WT to the mutant,\ni.e. a ratio of the mutant/WT. There were", ngenes, "with q-value <= 0.01 and abs(l2fc) >= 1")))
+
+ggsave(plot = fig, filename = "../figures/wt_to_mut_fc_overlaps_3d.png", width = 7.5, height = 7)
+```
+What about the rest of the genes?
+Do the overlapping genes have a large change in abundance between WT and xrn1?
+```{r fig.width = 7.5, fig.height=7}
+ov.df2 <- read_csv("../data_frames/deseq_results.csv") %>% 
+  filter(comparison == "mut_over_wt")
+
+fcdist2 <- ov.df2 %>% 
+  ggplot(., aes(log2FoldChange))+
+  geom_histogram(bins = 100)+
+  geom_vline(aes(xintercept = 1), linetype = 5)+
+  geom_vline(aes(xintercept = -1), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  labs(x = expression(paste(log[2], "(fold change)")),
+       y = "Number of genes")+
+  scale_x_continuous(breaks = seq(-5, 10, 1))
+
+qdist2 <- ov.df2 %>% 
+  ggplot(., aes(padj))+
+  geom_histogram(bins = 100)+
+  geom_vline(aes(xintercept = .01), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  labs(x = "q-value",
+       y = "Number of genes")
+
+volc2 <- ov.df2 %>% 
+  ggplot(., aes(log2FoldChange, -log10(padj)))+
+  geom_point(size = 1)+
+  geom_hline(aes(yintercept = -log10(.01)), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  labs(x = expression(paste(log[2], "(fold change)")),
+       y = expression(paste(-log[10], "(q-value)")))
+
+volc22 <- ov.df2 %>% 
+  ggplot(., aes(log2FoldChange, -log10(padj)))+
+  geom_point(size = 1)+
+  geom_hline(aes(yintercept = -log10(.01)), linetype = 5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 13))+
+  coord_cartesian(xlim = c(-2.5, 2.5), ylim = c(0, 10))+
+  labs(x = expression(paste(log[2], "(fold change)")),
+       y = expression(paste(-log[10], "(q-value)")))
+
+# how many genes with sig q and >= 1 fc
+ngenes2 <- ov.df2 %>% 
+  filter(padj <= .01& abs(log2FoldChange) >= 1) %>% 
+  nrow()
+
+fig2 <- ((fcdist2 | qdist2) / (volc2 | volc22) + plot_annotation(caption = paste("Fold change represents change from the WT to the mutant,\ni.e. a ratio of the mutant/WT. There were", ngenes2, "with q-value <= 0.01 and abs(l2fc) >= 1")))
+
+ggsave(plot = fig2, filename = "../figures/wt_to_mut_fc_all_genes.png", width = 7.5, height = 7)
+```
 
 ### GO results
 

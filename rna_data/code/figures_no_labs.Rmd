@@ -400,8 +400,9 @@ c.list <- list(
 
 fc.boxes <- fc.plot.df2 %>% 
   filter(sig == TRUE) %>% 
-  ggplot(., aes(comp, mean_tpm, fill = comp))+
-  geom_boxplot(width = .5, outlier.size = .5)+
+  ggplot(., aes(comp, mean_tpm, color = comp))+
+  geom_jitter(height = 0, width = .2, size = 1, alpha = .5)+
+  geom_boxplot(width = .5, outlier.colour = NA, fill = NA)+
   scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x)))+
   stat_compare_means(comparisons = c.list, aes(label = ..p.signif..), vjust = .5, method.args = (list("alternative" = "less")))+
   theme_bw()+
@@ -412,7 +413,7 @@ fc.boxes <- fc.plot.df2 %>%
   labs(x = NULL,
        y = "PolyA RNAseq TPM")+
   scale_x_discrete(labels = scales::label_wrap(14))+
-  scale_fill_manual(values = c("#1F78B4", "#A6CEE3", "#FF7F00", "#FDBF6F"), guide = "none")
+  scale_color_manual(values = c("#1F78B4", "#A6CEE3", "#FF7F00", "#FDBF6F"), guide = "none")
 
 ggsave(plot = fc.boxes, filename = "../figures/no_labs_tpms_of_sig_genes.png", width = 5, height = 3)
 

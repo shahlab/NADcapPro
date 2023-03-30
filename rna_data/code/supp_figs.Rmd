@@ -135,19 +135,33 @@ ggsave(plot = p.cors.tpm, filename = "../figures/tpm_cors.png", width = 8, heigh
 
 ### Read count distributions
 
+These are rounded read counts.
 ```{r fig.width = 6, fig.height = 3.5}
-p.rc.dist <- kdf %>% 
+p.rc.dist <- kdf %>%
   mutate(Replicate = str_sub(sample, start = -1),
-         sample = str_sub(sample, end = -3)) %>% 
-  ggplot(., aes(sample, est_counts, fill = Replicate))+
-  geom_boxplot(outlier.size = .5)+
-  scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x)))+
-  theme_bw()+
-  theme(text = element_text(size = 13),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(angle = 20, hjust = 1))+
+         sample = str_sub(sample, end = -3),
+         est_counts = round(est_counts)) %>%
+  filter(est_counts > 0) %>% 
+  ggplot(., aes(sample, est_counts, color = Replicate)) +
+  geom_point(
+    position = position_jitterdodge(jitter.height = 0, jitter.width = .2),
+    size = 1
+  ) +
+  geom_boxplot(aes(linetype = Replicate), # this is so I can make them black and let the points be colored
+               outlier.colour = NA,
+               fill = NA,
+               color = "black",
+               show.legend = FALSE) +
+  scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x))) +
+  theme_bw() +
+  theme(
+    text = element_text(size = 13),
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 20, hjust = 1)
+  ) +
   labs(x = NULL,
-       y = "Reads per gene")
+       y = "Reads per gene")+
+  scale_linetype_manual(values = c(1,1,1))
 
 p.rc.dist
 
